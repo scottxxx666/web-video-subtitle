@@ -15,11 +15,20 @@ export class GeminiLiveSession {
   private mediaStreamSource: MediaStreamAudioSourceNode | null = null;
   private analyserNode: AnalyserNode | null = null;
   private captureTimer: number | null = null;
-  private audioBufferQueue: Float32Array[] = [];
   private targetSampleRate = 16000;
-  private captureInterval = 1000; // 1 second - collect 1s samples
-  private bufferCount = 4; // 4 buffers × 1s = 4 seconds
+  private chunkDurationMs = 250; // 1 second audio chunks
   private saveProcessedAudio = false; // Set to false to disable processed audio saving
+
+  // Computed properties based on chunk duration
+  private get fftSize(): number {
+    // Calculate samples needed for desired duration, round up to nearest power of 2
+    const samplesNeeded = this.targetSampleRate * this.chunkDurationMs / 1000;
+    return Math.pow(2, Math.ceil(Math.log2(samplesNeeded)));
+  }
+
+  private get captureInterval(): number {
+    return this.chunkDurationMs;
+  }
 
   constructor() {
     console.log('GeminiLiveSession created');
@@ -82,7 +91,7 @@ export class GeminiLiveSession {
         config: {
           responseModalities: [Modality.TEXT],
           // systemInstruction: "convert speech to text in real-time. if not recognize tell me why. plz give me response for every audio chunk as soon as possible",
-          systemInstruction: "請將聲音檔中的非繁體中文的部分都產生繁體中文字幕，並在最短時間內傳回",
+          systemInstruction: "請依照韓國明星的聲音產生繁體中文字幕(所有韓文的部分都轉成繁體中文)，一但有翻譯好的就儘早傳回來，請盡量快回覆。",
         },
       });
 
@@ -102,7 +111,7 @@ export class GeminiLiveSession {
 
       // Create AnalyserNode for audio data capture
       this.analyserNode = this.audioContext.createAnalyser();
-      this.analyserNode.fftSize = 16384; // 16384 samples = ~1.02 seconds at 16kHz
+      this.analyserNode.fftSize = this.fftSize; // Calculated from chunk duration
       this.analyserNode.smoothingTimeConstant = 0;
 
       if (this.saveProcessedAudio) {
@@ -129,51 +138,13 @@ export class GeminiLiveSession {
 
     this.captureTimer = window.setInterval(() => {
       if (this.analyserNode) {
-        // Get time domain data (raw audio samples) - 1 second worth
+        // Get time domain data (raw audio samples) - send immediately
         this.analyserNode.getFloatTimeDomainData(audioBuffer);
-        this.collectAudioSample(new Float32Array(audioBuffer)); // Copy the buffer
+        this.processAudioData(new Float32Array(audioBuffer)); // Send directly
       }
     }, this.captureInterval);
   }
 
-  private collectAudioSample(audioSample: Float32Array): void {
-    // Add 1-second sample to queue
-    this.audioBufferQueue.push(audioSample);
-    console.log(`Collected audio sample ${this.audioBufferQueue.length}/${this.bufferCount} (~1 second each)`);
-
-    // If we have 4 samples (4 seconds), process them
-    if (this.audioBufferQueue.length >= this.bufferCount) {
-      this.processAccumulatedAudio();
-    }
-  }
-
-  private processAccumulatedAudio(): void {
-    if (this.audioBufferQueue.length === 0) return;
-
-    try {
-      // Concatenate all 1-second buffers into one 4-second audio chunk
-      const totalSamples = this.audioBufferQueue.reduce((sum, buffer) => sum + buffer.length, 0);
-      const combinedBuffer = new Float32Array(totalSamples);
-
-      let offset = 0;
-      for (const buffer of this.audioBufferQueue) {
-        combinedBuffer.set(buffer, offset);
-        offset += buffer.length;
-      }
-
-      // Process the combined 4-second audio
-      this.processAudioData(combinedBuffer);
-
-      // Clear the queue for next accumulation
-      this.audioBufferQueue = [];
-
-      console.log(`Processed ${totalSamples} samples (~${(totalSamples / this.targetSampleRate).toFixed(1)}s of audio)`);
-
-    } catch (error) {
-      console.error('Error processing accumulated audio:', error);
-      this.audioBufferQueue = []; // Clear queue on error
-    }
-  }
 
   private processAudioData(audioData: Float32Array): void {
     try {
@@ -193,7 +164,6 @@ export class GeminiLiveSession {
           mimeType: "audio/pcm;rate=16000"
         }
       });
-      console.log('Processed audio data and sent to Gemini:', base64Data.length, 'bytes');
 
     } catch (error) {
       console.error('Error processing audio data:', error);
@@ -272,9 +242,6 @@ export class GeminiLiveSession {
       clearInterval(this.captureTimer);
       this.captureTimer = null;
     }
-
-    // Clear any remaining buffers
-    this.audioBufferQueue = [];
 
     if (this.analyserNode) {
       this.analyserNode.disconnect();
