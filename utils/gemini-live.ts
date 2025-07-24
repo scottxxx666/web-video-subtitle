@@ -45,8 +45,32 @@ export class GeminiLiveSession {
             console.debug('Opened');
           },
           onmessage: function (message) {
-            // responseQueue.push(message);
             console.log('Received message:', message);
+
+            // Handle transcription responses
+            if (message.serverContent) {
+              // Check for input transcription (what user said)
+              if (message.serverContent.inputTranscription) {
+                const inputText = message.serverContent.inputTranscription.text;
+                console.log('Input Transcript:', inputText);
+                // TODO: Display input transcription as subtitles
+              }
+
+              // Check for model response text
+              if (message.serverContent.modelTurn && message.serverContent.modelTurn.parts) {
+                for (const part of message.serverContent.modelTurn.parts) {
+                  if (part.text) {
+                    console.log('Model Response:', part.text);
+                    // TODO: Display model response as subtitles
+                  }
+                }
+              }
+
+              // Check if turn is complete
+              if (message.serverContent.turnComplete) {
+                console.log('Turn completed');
+              }
+            }
           },
           onerror: function (e) {
             console.debug('Error:', e.message);
