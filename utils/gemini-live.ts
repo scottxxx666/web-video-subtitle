@@ -1,4 +1,4 @@
-import { GoogleGenAI, Modality } from '@google/genai';
+import { ActivityHandling, EndSensitivity, GoogleGenAI, Modality, StartSensitivity } from '@google/genai';
 import { WaveFile } from 'wavefile';
 
 // Gemini Live API configuration
@@ -20,6 +20,10 @@ export class GeminiLiveSession {
   private chunkDurationMs = 250; // 1 second audio chunks
   private saveProcessedAudio = false; // Set to false to disable processed audio saving
 
+  constructor() {
+    console.log('GeminiLiveSession created');
+  }
+
   // Computed properties based on chunk duration
   private get fftSize(): number {
     // Calculate samples needed for desired duration, round up to nearest power of 2
@@ -31,64 +35,69 @@ export class GeminiLiveSession {
     return this.chunkDurationMs;
   }
 
-  constructor() {
-    console.log('GeminiLiveSession created');
-  }
+  async connect(updateSubtitle: ((text: string) => void)) {
+    console.log('Attempting to connect to Gemini Live API...');
 
-  async connect(updateSubtitle:((text: string) => void)){
-      console.log('Attempting to connect to Gemini Live API...');
 
       this.config = {
         apiKey: 'apiKey', // Replace with actual API key
         model: 'gemini-live-2.5-flash-preview', // Default model
       }
-      console.log('Got Gemini config:', {model: this.config.model});
 
-      const ai = new GoogleGenAI({
-        apiKey: this.config.apiKey,
-      });
+    const ai = new GoogleGenAI({
+      apiKey: this.config.apiKey,
+    });
 
     this.session = await ai.live.connect({
-        model: this.config.model,
-        callbacks: {
-          onopen: () => {
-            console.debug('Opened');
-          },
-          onmessage: (message) => {
-            // console.log('Received message:', message);
+      model: this.config.model,
+      callbacks: {
+        onopen: () => {
+          console.debug('Opened');
+        },
+        onmessage: (message) => {
+          // console.log('Received message:', message);
 
-            // Handle transcription responses
-            if (message.serverContent) {
-              if (message.serverContent.modelTurn && message.serverContent.modelTurn.parts) {
-                for (const part of message.serverContent.modelTurn.parts) {
-                  if (part.text) {
-                    this.currentTurnText += part.text;
-                  }
-                }
-              }
-
-              // When turn is complete, send accumulated text
-              if (message.serverContent.turnComplete) {
-                if (this.currentTurnText.trim()) {
-                  console.log('Turn completed with text:', this.currentTurnText);
-                  updateSubtitle(this.currentTurnText);
-                  this.currentTurnText = ''; // Reset for next turn
+          // Handle transcription responses
+          if (message.serverContent) {
+            if (message.serverContent.modelTurn && message.serverContent.modelTurn.parts) {
+              for (const part of message.serverContent.modelTurn.parts) {
+                if (part.text) {
+                  this.currentTurnText += part.text;
                 }
               }
             }
-          },
-          onerror: (e) => {
-            console.debug('Error:', e.message);
-          },
-          onclose: (e) => {
-            console.debug('Close:', e.reason);
-          },
+
+            // When turn is complete, send accumulated text
+            if (message.serverContent.turnComplete) {
+              if (this.currentTurnText.trim()) {
+                console.log('Turn completed with text:', this.currentTurnText);
+                updateSubtitle(this.currentTurnText);
+                this.currentTurnText = ''; // Reset for next turn
+              }
+            }
+          }
         },
-        config: {
-          responseModalities: [Modality.TEXT],
-          inputAudioTranscription: {}, // Enable input audio transcription
-          // systemInstruction: "convert speech to text in real-time. if not recognize tell me why. plz give me response for every audio chunk as soon as possible",
-          systemInstruction: `請執行韓國娛樂人士語音即時字幕處理任務：
+        onerror: (e) => {
+          console.debug('Error:', e.message);
+        },
+        onclose: (e) => {
+          console.debug('Close:', e.reason);
+        },
+      },
+      config: {
+        responseModalities: [Modality.TEXT],
+        realtimeInputConfig: {
+          automaticActivityDetection: {
+            disabled: false, // default
+            startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_LOW,
+            endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_HIGH,
+            prefixPaddingMs: 20, // optional
+            silenceDurationMs: 100, // optional
+          },
+          // activityHandling: ActivityHandling.NO_INTERRUPTION,
+          // turnCoverage: TurnCoverage.TURN_INCLUDES_ALL_INPUT,
+        },
+        systemInstruction: `請執行韓國娛樂人士語音即時字幕處理任務：
 
 **適用對象**：韓國偶像、明星、演員
 **處理規則**：
@@ -100,12 +109,12 @@ export class GeminiLiveSession {
 1. 即時處理：完成後立即傳回，避免延遲
 3. 翻譯背景：基於韓國娛樂圈文化進行翻譯
 4. 專業術語：準確翻譯韓流相關用語、敬語、粉絲文化用詞
-5. 語言識別：自動識別語言並決定翻譯或保留原文`,
-        },
-      });
+5. 語言識別：僅輸出中文或英文`,
+      },
+    });
 
 
-      return true;
+    return true;
   }
 
   async startAudioProcessing(mediaStream: MediaStream): Promise<void> {
@@ -115,7 +124,7 @@ export class GeminiLiveSession {
     }
 
     try {
-      this.audioContext = new AudioContext({ sampleRate: this.targetSampleRate });
+      this.audioContext = new AudioContext({sampleRate: this.targetSampleRate});
       this.mediaStreamSource = this.audioContext.createMediaStreamSource(mediaStream);
 
       // Create AnalyserNode for audio data capture
@@ -139,6 +148,44 @@ export class GeminiLiveSession {
     }
   }
 
+  async disconnect(): Promise<void> {
+    this.stopAudioProcessing();
+    if (this.session) {
+      // Close Gemini session if it has a close method
+      try {
+        await this.session.close?.();
+      } catch (error) {
+        console.error('Error closing Gemini session:', error);
+      }
+      this.session = null;
+    }
+    console.log('Gemini session disconnected');
+  }
+
+  stopAudioProcessing(): void {
+    if (this.captureTimer) {
+      clearInterval(this.captureTimer);
+      this.captureTimer = null;
+    }
+
+    if (this.analyserNode) {
+      this.analyserNode.disconnect();
+      this.analyserNode = null;
+    }
+
+    if (this.mediaStreamSource) {
+      this.mediaStreamSource.disconnect();
+      this.mediaStreamSource = null;
+    }
+
+    if (this.audioContext) {
+      this.audioContext.close();
+      this.audioContext = null;
+    }
+
+    console.log('Audio processing stopped');
+  }
+
   private startAudioCapture(): void {
     if (!this.analyserNode) return;
 
@@ -153,7 +200,6 @@ export class GeminiLiveSession {
       }
     }, this.captureInterval);
   }
-
 
   private processAudioData(audioData: Float32Array): void {
     try {
@@ -187,7 +233,7 @@ export class GeminiLiveSession {
 
       // Convert to buffer and create blob for download
       const wavBuffer = wav.toBuffer();
-      const blob = new Blob([wavBuffer], { type: 'audio/wav' });
+      const blob = new Blob([wavBuffer], {type: 'audio/wav'});
       this.downloadWavFile(blob);
 
     } catch (error) {
@@ -230,44 +276,6 @@ export class GeminiLiveSession {
       binary += String.fromCharCode(bytes[i]);
     }
     return btoa(binary);
-  }
-
-  async disconnect(): Promise<void> {
-    this.stopAudioProcessing();
-    if (this.session) {
-      // Close Gemini session if it has a close method
-      try {
-        await this.session.close?.();
-      } catch (error) {
-        console.error('Error closing Gemini session:', error);
-      }
-      this.session = null;
-    }
-    console.log('Gemini session disconnected');
-  }
-
-  stopAudioProcessing(): void {
-    if (this.captureTimer) {
-      clearInterval(this.captureTimer);
-      this.captureTimer = null;
-    }
-
-    if (this.analyserNode) {
-      this.analyserNode.disconnect();
-      this.analyserNode = null;
-    }
-
-    if (this.mediaStreamSource) {
-      this.mediaStreamSource.disconnect();
-      this.mediaStreamSource = null;
-    }
-
-    if (this.audioContext) {
-      this.audioContext.close();
-      this.audioContext = null;
-    }
-
-    console.log('Audio processing stopped');
   }
 
 
