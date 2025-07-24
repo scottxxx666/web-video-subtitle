@@ -179,23 +179,18 @@ async function setupGeminiConnection(videoInfo: VideoInfo) {
   try {
     console.log('Setting up Gemini Live API connection...');
 
-    // Create new Gemini session
+
+    // Create new Gemini session with subtitle callback
     videoInfo.geminiSession = new GeminiLiveSession();
 
-    // Set up transcription callback
-    // videoInfo.geminiSession.onTranscriptionReceived((text: string) => {
-    //   console.log('Received transcription:', text);
-    //   if (videoInfo.subtitleElement) {
-    //     updateSubtitles(text, videoInfo.subtitleElement);
-    //   }
-    // });
-
-    await videoInfo.geminiSession.connect();
+    videoInfo.subtitleElement = createSubtitleOverlay(videoInfo.element);
+    await videoInfo.geminiSession.connect((text: string) => {
+      if (videoInfo.subtitleElement) {
+        updateSubtitles(text, videoInfo.subtitleElement);
+      }
+    });
 
       console.log('Gemini Live API connection established successfully');
-
-      // Create subtitle overlay using utility
-      videoInfo.subtitleElement = createSubtitleOverlay(videoInfo.element);
   return true
   } catch (error) {
     console.error('Error setting up Gemini connection:', error);

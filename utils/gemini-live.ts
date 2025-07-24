@@ -11,6 +11,7 @@ export interface GeminiConfig {
 export class GeminiLiveSession {
   private config: GeminiConfig | null = null;
   private session: any = null;
+  private currentTurnText = ''; // Accumulate text within a turn
   private audioContext: AudioContext | null = null;
   private mediaStreamSource: MediaStreamAudioSourceNode | null = null;
   private analyserNode: AnalyserNode | null = null;
@@ -34,7 +35,7 @@ export class GeminiLiveSession {
     console.log('GeminiLiveSession created');
   }
 
-  async connect(){
+  async connect(updateSubtitle:((text: string) => void)){
       console.log('Attempting to connect to Gemini Live API...');
 
       this.config = {
@@ -50,48 +51,56 @@ export class GeminiLiveSession {
     this.session = await ai.live.connect({
         model: this.config.model,
         callbacks: {
-          onopen: function () {
+          onopen: () => {
             console.debug('Opened');
           },
-          onmessage: function (message) {
-            console.log('Received message:', message);
+          onmessage: (message) => {
+            // console.log('Received message:', message);
 
             // Handle transcription responses
             if (message.serverContent) {
-              // Check for input transcription (what user said)
-              if (message.serverContent.inputTranscription) {
-                const inputText = message.serverContent.inputTranscription.text;
-                console.log('Input Transcript:', inputText);
-                // TODO: Display input transcription as subtitles
-              }
-
-              // Check for model response text
               if (message.serverContent.modelTurn && message.serverContent.modelTurn.parts) {
                 for (const part of message.serverContent.modelTurn.parts) {
                   if (part.text) {
-                    console.log('Model Response:', part.text);
-                    // TODO: Display model response as subtitles
+                    this.currentTurnText += part.text;
                   }
                 }
               }
 
-              // Check if turn is complete
+              // When turn is complete, send accumulated text
               if (message.serverContent.turnComplete) {
-                console.log('Turn completed');
+                if (this.currentTurnText.trim()) {
+                  console.log('Turn completed with text:', this.currentTurnText);
+                  updateSubtitle(this.currentTurnText);
+                  this.currentTurnText = ''; // Reset for next turn
+                }
               }
             }
           },
-          onerror: function (e) {
+          onerror: (e) => {
             console.debug('Error:', e.message);
           },
-          onclose: function (e) {
+          onclose: (e) => {
             console.debug('Close:', e.reason);
           },
         },
         config: {
           responseModalities: [Modality.TEXT],
+          inputAudioTranscription: {}, // Enable input audio transcription
           // systemInstruction: "convert speech to text in real-time. if not recognize tell me why. plz give me response for every audio chunk as soon as possible",
-          systemInstruction: "請依照韓國明星的聲音產生繁體中文字幕(所有韓文的部分都轉成繁體中文)，一但有翻譯好的就儘早傳回來，請盡量快回覆。",
+          systemInstruction: `請執行韓國娛樂人士語音即時字幕處理任務：
+
+**適用對象**：韓國偶像、明星、演員
+**處理規則**：
+- 韓語內容：翻譯為繁體中文
+- 中文/英文內容：保持原文不翻譯
+- 混合語言：分別按語言處理
+
+**輸出要求**：
+1. 即時處理：完成後立即傳回，避免延遲
+3. 翻譯背景：基於韓國娛樂圈文化進行翻譯
+4. 專業術語：準確翻譯韓流相關用語、敬語、粉絲文化用詞
+5. 語言識別：自動識別語言並決定翻譯或保留原文`,
         },
       });
 
