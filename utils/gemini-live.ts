@@ -1,4 +1,4 @@
-import { GoogleGenAI } from '@google/genai';
+import { ActivityHandling, EndSensitivity, GoogleGenAI, Modality, StartSensitivity } from '@google/genai';
 import { WaveFile } from 'wavefile';
 
 // Gemini Live API configuration
@@ -7,26 +7,20 @@ export interface GeminiConfig {
   model: string;
 }
 
-// Gemini Audio Understanding Session for batch speech recognition
+// Gemini Live Session for real-time speech recognition
 export class GeminiLiveSession {
-  private config: GeminiConfig;
-  private genAI: GoogleGenAI | null = null;
+  private config: GeminiConfig | null = null;
+  private session: any = null;
+  private currentTurnText = ''; // Accumulate text within a turn
   private audioContext: AudioContext | null = null;
   private mediaStreamSource: MediaStreamAudioSourceNode | null = null;
   private analyserNode: AnalyserNode | null = null;
   private captureTimer: number | null = null;
   private targetSampleRate = 16000;
-  private chunkDurationMs = 1000; // 1 second audio chunks for capture
-  private duration = 4000; // 5 seconds
-  private updateSubtitleCallback: ((text: string) => void) | null = null;
-  private audioBufferQueue: AudioBuffer[] = [];
-  private isProcessing = false;
+  private chunkDurationMs = 250; // 1 second audio chunks
+  private saveProcessedAudio = false; // Set to false to disable processed audio saving
 
   constructor() {
-    this.config = {
-      apiKey: 'apiKey', // Replace with actual API key
-      model: 'gemini-2.5-flash-lite', // Default model for audio understanding
-    }
     console.log('GeminiLiveSession created');
   }
 
@@ -42,18 +36,90 @@ export class GeminiLiveSession {
   }
 
   async connect(updateSubtitle: ((text: string) => void)) {
-    console.log('Attempting to connect to Gemini Audio Understanding API...');
+    console.log('Attempting to connect to Gemini Live API...');
 
-    this.genAI = new GoogleGenAI({apiKey: this.config.apiKey});
-    this.updateSubtitleCallback = updateSubtitle;
 
-    console.log('Gemini Audio Understanding API connection established successfully');
+      this.config = {
+        apiKey: 'apiKey', // Replace with actual API key
+        model: 'gemini-live-2.5-flash-preview', // Default model
+      }
+
+    const ai = new GoogleGenAI({
+      apiKey: this.config.apiKey,
+    });
+
+    this.session = await ai.live.connect({
+      model: this.config.model,
+      callbacks: {
+        onopen: () => {
+          console.debug('Opened');
+        },
+        onmessage: (message) => {
+          // console.log('Received message:', message);
+
+          // Handle transcription responses
+          if (message.serverContent) {
+            if (message.serverContent.modelTurn && message.serverContent.modelTurn.parts) {
+              for (const part of message.serverContent.modelTurn.parts) {
+                if (part.text) {
+                  this.currentTurnText += part.text;
+                }
+              }
+            }
+
+            // When turn is complete, send accumulated text
+            if (message.serverContent.turnComplete) {
+              if (this.currentTurnText.trim()) {
+                console.log('Turn completed with text:', this.currentTurnText);
+                updateSubtitle(this.currentTurnText);
+                this.currentTurnText = ''; // Reset for next turn
+              }
+            }
+          }
+        },
+        onerror: (e) => {
+          console.debug('Error:', e.message);
+        },
+        onclose: (e) => {
+          console.debug('Close:', e.reason);
+        },
+      },
+      config: {
+        responseModalities: [Modality.TEXT],
+        realtimeInputConfig: {
+          automaticActivityDetection: {
+            disabled: false, // default
+            startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_LOW,
+            endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_HIGH,
+            prefixPaddingMs: 20, // optional
+            silenceDurationMs: 100, // optional
+          },
+          // activityHandling: ActivityHandling.NO_INTERRUPTION,
+          // turnCoverage: TurnCoverage.TURN_INCLUDES_ALL_INPUT,
+        },
+        systemInstruction: `請執行韓國娛樂人士語音即時字幕處理任務：
+
+**適用對象**：韓國偶像、明星、演員
+**處理規則**：
+- 韓語內容：翻譯為繁體中文
+- 中文/英文內容：保持原文不翻譯
+- 混合語言：分別按語言處理
+
+**輸出要求**：
+1. 即時處理：完成後立即傳回，避免延遲
+3. 翻譯背景：基於韓國娛樂圈文化進行翻譯
+4. 專業術語：準確翻譯韓流相關用語、敬語、粉絲文化用詞
+5. 語言識別：僅輸出中文或英文`,
+      },
+    });
+
+
     return true;
   }
 
   async startAudioProcessing(mediaStream: MediaStream): Promise<void> {
-    if (!this.genAI) {
-      console.error('Cannot start audio processing: Gemini AI not connected');
+    if (!this.session) {
+      console.error('Cannot start audio processing: session not connected');
       return;
     }
 
@@ -65,6 +131,10 @@ export class GeminiLiveSession {
       this.analyserNode = this.audioContext.createAnalyser();
       this.analyserNode.fftSize = this.fftSize; // Calculated from chunk duration
       this.analyserNode.smoothingTimeConstant = 0;
+
+      if (this.saveProcessedAudio) {
+        console.log('Processed audio saving enabled - WAV files will be auto-downloaded');
+      }
 
       // Connect audio graph: MediaStream -> AnalyserNode
       this.mediaStreamSource.connect(this.analyserNode);
@@ -80,10 +150,15 @@ export class GeminiLiveSession {
 
   async disconnect(): Promise<void> {
     this.stopAudioProcessing();
-    this.genAI = null;
-    this.updateSubtitleCallback = null;
-    this.audioBufferQueue = [];
-    this.isProcessing = false;
+    if (this.session) {
+      // Close Gemini session if it has a close method
+      try {
+        await this.session.close?.();
+      } catch (error) {
+        console.error('Error closing Gemini session:', error);
+      }
+      this.session = null;
+    }
     console.log('Gemini session disconnected');
   }
 
@@ -112,135 +187,75 @@ export class GeminiLiveSession {
   }
 
   private startAudioCapture(): void {
-    if (!this.analyserNode || !this.audioContext) return;
+    if (!this.analyserNode) return;
 
     const bufferLength = this.analyserNode.fftSize;
     const audioBuffer = new Float32Array(bufferLength);
 
     this.captureTimer = window.setInterval(() => {
-      if (this.analyserNode && this.audioContext) {
-        // Get time domain data (raw audio samples)
+      if (this.analyserNode) {
+        // Get time domain data (raw audio samples) - send immediately
         this.analyserNode.getFloatTimeDomainData(audioBuffer);
-
-        // Create AudioBuffer for batch processing
-        const audioBufferForProcessing = this.audioContext.createBuffer(
-          1, // mono
-          audioBuffer.length,
-          this.targetSampleRate
-        );
-        audioBufferForProcessing.copyToChannel(audioBuffer, 0);
-
-        // Add to buffer queue
-        this.audioBufferQueue.push(audioBufferForProcessing);
-
-        if (this.audioBufferQueue.length >= (this.duration/this.chunkDurationMs) && !this.isProcessing) {
-          this.processAudioQueue();
-        }
+        this.processAudioData(new Float32Array(audioBuffer)); // Send directly
       }
     }, this.captureInterval);
   }
 
-  private async processAudioQueue(): Promise<void> {
-    if (this.isProcessing || this.audioBufferQueue.length === 0 || !this.genAI || !this.updateSubtitleCallback) {
-      return;
-    }
-
-    this.isProcessing = true;
-
-    // Take a copy of current buffers for processing
-    const buffersToProcess = [...this.audioBufferQueue];
-
-    // Clear buffer immediately after taking copy to continue capturing new audio
-    this.audioBufferQueue = [];
-
+  private processAudioData(audioData: Float32Array): void {
     try {
-      // Combine all buffers into one 5-second buffer
-      const combinedBuffer = this.combineAudioBuffers(buffersToProcess);
+      // Convert to Int16 PCM
+      const pcmData = this.convertFloat32ToInt16PCM(audioData);
 
-      // Convert combined AudioBuffer to WAV using wavefile
-      const channelData = combinedBuffer.getChannelData(0);
-      const pcmData = this.convertFloat32ToInt16PCM(channelData);
-
-      const wav = new WaveFile();
-      wav.fromScratch(1, this.targetSampleRate, '16', pcmData);
-      const wavBuffer = wav.toBuffer();
-      const base64Data = this.arrayBufferToBase64(wavBuffer);
-
-      // Send audio to Gemini for transcription
-      let contents = [
-        {
-          text: `請執行韓國娛樂人士語音字幕處理任務：
-
-**適用對象**：韓國偶像、明星、演員
-**處理規則**：
-- 韓語內容：翻譯為繁體中文
-- 中文/英文內容：保持原文不翻譯
-- 混合語言：分別按語言處理
-
-**輸出要求**：
-1. 翻譯背景：基於韓國娛樂圈文化進行翻譯
-2. 專業術語：準確翻譯韓流相關用語、敬語、粉絲文化用詞
-3. 語言識別：僅輸出中文或英文
-4. 不需要標記時間，只需要將字幕內容分段輸出為純文本
-5. 只回傳字幕內容就好，如果沒有內容就回傳空字串`
-        },
-        {
-          inlineData: {
-            data: base64Data,
-            mimeType: "audio/wav"
-          }
-        }
-      ];
-      const response = await this.genAI.models.generateContent({
-        model: this.config.model,
-        contents
-      });
-
-      const text = response.text || '';
-      console.log(response);
-
-      if (text.trim()) {
-        this.updateSubtitleCallback(text.trim());
+      // Save processed audio to WAV file if enabled
+      if (this.saveProcessedAudio) {
+        this.saveAsWavFile(pcmData);
       }
 
+      // Convert to base64 and send to Gemini
+      const base64Data = this.arrayBufferToBase64(pcmData.buffer);
+      this.session.sendRealtimeInput({
+        audio: {
+          data: base64Data,
+          mimeType: "audio/pcm;rate=16000"
+        }
+      });
+
     } catch (error) {
-      console.error('Error processing audio queue:', error);
-    } finally {
-      this.isProcessing = false;
+      console.error('Error processing audio data:', error);
     }
   }
 
+  private saveAsWavFile(pcmData: Int16Array): void {
+    try {
+      // Create WAV file using wavefile package
+      const wav = new WaveFile();
+      wav.fromScratch(1, this.targetSampleRate, '16', pcmData);
 
-  private combineAudioBuffers(buffers: AudioBuffer[]): AudioBuffer {
-    if (buffers.length === 0) {
-      throw new Error('No buffers to combine');
+      // Convert to buffer and create blob for download
+      const wavBuffer = wav.toBuffer();
+      const blob = new Blob([wavBuffer], {type: 'audio/wav'});
+      this.downloadWavFile(blob);
+
+    } catch (error) {
+      console.error('Error creating WAV file:', error);
     }
+  }
 
-    if (buffers.length === 1) {
-      return buffers[0];
-    }
+  private downloadWavFile(wavBlob: Blob): void {
+    const timestamp = Date.now();
+    const filename = `processed_audio_${timestamp}.wav`;
 
-    // Calculate total length
-    const totalLength = buffers.reduce((sum, buffer) => sum + buffer.length, 0);
+    const url = URL.createObjectURL(wavBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
 
-    // Create combined buffer
-    const combinedBuffer = this.audioContext!.createBuffer(
-      1, // mono
-      totalLength,
-      this.targetSampleRate
-    );
-
-    // Copy all buffer data into combined buffer
-    let offset = 0;
-    const combinedChannelData = combinedBuffer.getChannelData(0);
-
-    for (const buffer of buffers) {
-      const bufferChannelData = buffer.getChannelData(0);
-      combinedChannelData.set(bufferChannelData, offset);
-      offset += buffer.length;
-    }
-
-    return combinedBuffer;
+    console.log(`Downloaded processed audio: ${filename} (${wavBlob.size} bytes)`);
   }
 
   private convertFloat32ToInt16PCM(float32Data: Float32Array): Int16Array {
