@@ -1,10 +1,19 @@
-import { ActivityHandling, EndSensitivity, GoogleGenAI, Modality, StartSensitivity } from '@google/genai';
+import { ActivityHandling, EndSensitivity, GoogleGenAI, Modality, StartSensitivity, TurnCoverage } from '@google/genai';
 import { WaveFile } from 'wavefile';
 
 // Gemini Live API configuration
 export interface GeminiConfig {
   apiKey: string;
   model: string;
+}
+
+// Connection states for tracking Gemini session status
+export enum ConnectionState {
+  DISCONNECTED = 'disconnected',
+  CONNECTING = 'connecting',
+  CONNECTED = 'connected',
+  RECONNECTING = 'reconnecting',
+  FAILED = 'failed'
 }
 
 // Gemini Live Session for real-time speech recognition
@@ -19,6 +28,17 @@ export class GeminiLiveSession {
   private targetSampleRate = 16000;
   private chunkDurationMs = 250; // 1 second audio chunks
   private saveProcessedAudio = false; // Set to false to disable processed audio saving
+
+  // Reconnection management
+  private connectionState: ConnectionState = ConnectionState.DISCONNECTED;
+  private isIntentionalDisconnect = false;
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 5;
+  private baseReconnectDelay = 1000; // 1 second
+  private maxReconnectDelay = 30000; // 30 seconds
+  private reconnectTimeoutId: number | null = null;
+  private updateSubtitleCallback: ((text: string) => void) | null = null;
+  private currentMediaStream: MediaStream | null = null;
 
   constructor() {
     console.log('GeminiLiveSession created');
@@ -38,6 +58,8 @@ export class GeminiLiveSession {
   async connect(updateSubtitle: ((text: string) => void)) {
     console.log('Attempting to connect to Gemini Live API...');
 
+    this.connectionState = ConnectionState.CONNECTING;
+    this.updateSubtitleCallback = updateSubtitle;
 
       this.config = {
         apiKey: 'apiKey', // Replace with actual API key
@@ -52,7 +74,9 @@ export class GeminiLiveSession {
       model: this.config.model,
       callbacks: {
         onopen: () => {
-          console.debug('Opened');
+          console.debug('Gemini connection opened');
+          this.connectionState = ConnectionState.CONNECTED;
+          this.reconnectAttempts = 0; // Reset reconnection attempts on successful connection
         },
         onmessage: (message) => {
           // console.log('Received message:', message);
@@ -70,18 +94,22 @@ export class GeminiLiveSession {
             // When turn is complete, send accumulated text
             if (message.serverContent.turnComplete) {
               if (this.currentTurnText.trim()) {
-                console.log('Turn completed with text:', this.currentTurnText);
-                updateSubtitle(this.currentTurnText);
+                // console.log('Turn completed with text:', this.currentTurnText);
+                if (this.updateSubtitleCallback) {
+                  this.updateSubtitleCallback(this.currentTurnText);
+                }
                 this.currentTurnText = ''; // Reset for next turn
               }
             }
           }
         },
         onerror: (e) => {
-          console.debug('Error:', e.message);
+          console.debug('Gemini connection error:', e.message);
+          this.connectionState = ConnectionState.FAILED;
         },
         onclose: (e) => {
-          console.debug('Close:', e.reason);
+          console.debug('Gemini connection closed:', e.reason);
+          this.handleConnectionClose(e);
         },
       },
       config: {
@@ -89,24 +117,26 @@ export class GeminiLiveSession {
         realtimeInputConfig: {
           automaticActivityDetection: {
             disabled: false, // default
-            startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_LOW,
+            startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_HIGH,
             endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_HIGH,
             prefixPaddingMs: 20, // optional
-            silenceDurationMs: 100, // optional
+            silenceDurationMs: 20, // optional
           },
-          // activityHandling: ActivityHandling.NO_INTERRUPTION,
-          // turnCoverage: TurnCoverage.TURN_INCLUDES_ALL_INPUT,
+          activityHandling: ActivityHandling.NO_INTERRUPTION,
         },
         systemInstruction: `請執行韓國娛樂人士語音即時字幕處理任務：
 
-**適用對象**：韓國偶像、明星、演員
+**適用對象**：韓國偶像、演員
 **處理規則**：
 - 韓語內容：翻譯為繁體中文
 - 中文/英文內容：保持原文不翻譯
 - 混合語言：分別按語言處理
+- 請準確翻譯所有聽到的內容，不要省略任何句子
+- 可能同時有多人說話，請全部翻譯出來，寧願多翻或錯翻也不要缺少翻譯
 
 **輸出要求**：
 1. 即時處理：完成後立即傳回，避免延遲
+2. 字幕格式：每句話獨立處理，翻譯好一句就先傳回來同時繼續翻譯
 3. 翻譯背景：基於韓國娛樂圈文化進行翻譯
 4. 專業術語：準確翻譯韓流相關用語、敬語、粉絲文化用詞
 5. 語言識別：僅輸出中文或英文`,
@@ -122,6 +152,8 @@ export class GeminiLiveSession {
       console.error('Cannot start audio processing: session not connected');
       return;
     }
+
+    this.currentMediaStream = mediaStream; // Store for potential reconnection
 
     try {
       this.audioContext = new AudioContext({sampleRate: this.targetSampleRate});
@@ -149,9 +181,17 @@ export class GeminiLiveSession {
   }
 
   async disconnect(): Promise<void> {
+    this.isIntentionalDisconnect = true; // Mark as intentional disconnect
+    this.connectionState = ConnectionState.DISCONNECTED;
+
+    // Clear any pending reconnection attempts
+    if (this.reconnectTimeoutId) {
+      clearTimeout(this.reconnectTimeoutId);
+      this.reconnectTimeoutId = null;
+    }
+
     this.stopAudioProcessing();
     if (this.session) {
-      // Close Gemini session if it has a close method
       try {
         await this.session.close?.();
       } catch (error) {
@@ -160,6 +200,105 @@ export class GeminiLiveSession {
       this.session = null;
     }
     console.log('Gemini session disconnected');
+  }
+
+  // Handle connection closure and determine if reconnection is needed
+  private handleConnectionClose(_closeEvent: any): void {
+    console.log('Connection closed. Intentional:', this.isIntentionalDisconnect);
+
+    if (this.isIntentionalDisconnect) {
+      // This was an intentional disconnect, don't reconnect
+      this.connectionState = ConnectionState.DISCONNECTED;
+      this.isIntentionalDisconnect = false; // Reset flag
+      return;
+    }
+
+    // This was an unexpected disconnect, attempt reconnection
+    if (this.reconnectAttempts < this.maxReconnectAttempts) {
+      this.connectionState = ConnectionState.RECONNECTING;
+      void this.attemptReconnection();
+    } else {
+      console.error('Max reconnection attempts reached. Connection failed permanently.');
+      this.connectionState = ConnectionState.FAILED;
+    }
+  }
+
+  // Attempt to reconnect with exponential backoff
+  private async attemptReconnection(): Promise<void> {
+    this.reconnectAttempts++;
+
+    // Calculate delay using exponential backoff
+    const delay = Math.min(
+      this.baseReconnectDelay * Math.pow(2, this.reconnectAttempts - 1),
+      this.maxReconnectDelay
+    );
+
+    console.log(`Attempting reconnection ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delay}ms...`);
+
+    this.reconnectTimeoutId = window.setTimeout(async () => {
+      try {
+        if (!this.updateSubtitleCallback) {
+          console.error('Cannot reconnect: subtitle callback not available');
+          return;
+        }
+
+        // Attempt to reconnect
+        await this.connect(this.updateSubtitleCallback);
+
+        // If reconnection successful and we have a media stream, restart audio processing
+        if (this.currentMediaStream && this.connectionState === ConnectionState.CONNECTED) {
+          await this.startAudioProcessing(this.currentMediaStream);
+          console.log('Reconnection successful. Audio processing resumed.');
+        }
+
+      } catch (error) {
+        console.error(`Reconnection attempt ${this.reconnectAttempts} failed:`, error);
+
+        // If this wasn't the last attempt, try again
+        if (this.reconnectAttempts < this.maxReconnectAttempts) {
+          void this.attemptReconnection();
+        } else {
+          console.error('All reconnection attempts failed. Connection permanently failed.');
+          this.connectionState = ConnectionState.FAILED;
+        }
+      }
+    }, delay);
+  }
+
+  // Public method to get current connection state
+  getConnectionState(): ConnectionState {
+    return this.connectionState;
+  }
+
+  // Public method to manually trigger reconnection
+  async manualReconnect(): Promise<boolean> {
+    if (this.connectionState === ConnectionState.CONNECTED) {
+      console.log('Already connected. No need to reconnect.');
+      return true;
+    }
+
+    console.log('Manual reconnection triggered...');
+    this.reconnectAttempts = 0; // Reset attempts for manual reconnection
+
+    try {
+      if (!this.updateSubtitleCallback) {
+        console.error('Cannot reconnect: subtitle callback not available');
+        return false;
+      }
+
+      await this.connect(this.updateSubtitleCallback);
+
+      if (this.currentMediaStream && this.connectionState === ConnectionState.CONNECTED) {
+        await this.startAudioProcessing(this.currentMediaStream);
+        console.log('Manual reconnection successful.');
+        return true;
+      }
+
+      return this.connectionState === ConnectionState.CONNECTED;
+    } catch (error) {
+      console.error('Manual reconnection failed:', error);
+      return false;
+    }
   }
 
   stopAudioProcessing(): void {

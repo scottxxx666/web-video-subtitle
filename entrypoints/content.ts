@@ -12,13 +12,7 @@ import {
 
 export default defineContentScript({
   matches: [
-    '*://*.youtube.com/*',
-    '*://*.netflix.com/*',
-    '*://*.twitch.tv/*',
-    '*://*.vimeo.com/*',
     '*://weverse.io/*',
-    '*://localhost/*',
-    'file://*/*'
   ],
 
   main() {
@@ -51,7 +45,7 @@ function initVideoSubtitleSystem() {
 }
 
 function detectExistingVideos() {
-  const videos = document.querySelectorAll('video');
+  const videos = document.querySelectorAll('video.webplayer-internal-video');
   console.log(`Found ${videos.length} existing video elements`);
 
   videos.forEach(video => {
@@ -66,13 +60,13 @@ function observeNewVideos() {
         if (node.nodeType === Node.ELEMENT_NODE) {
           const element = node as Element;
 
-          // Check if the added node is a video
-          if (element.tagName === 'VIDEO') {
+          // Check if the added node is a video with the specific class
+          if (element.tagName === 'VIDEO' && element.classList.contains('webplayer-internal-video')) {
             registerVideoElement(element as HTMLVideoElement);
           }
 
-          // Check if the added node contains videos
-          const videos = element.querySelectorAll('video');
+          // Check if the added node contains videos with the specific class
+          const videos = element.querySelectorAll('video.webplayer-internal-video');
           videos.forEach(video => {
             registerVideoElement(video as HTMLVideoElement);
           });
