@@ -136,6 +136,14 @@ function setupVideoEventListeners(video: HTMLVideoElement, videoInfo: VideoInfo)
 }
 
 async function startAudioCapture(video: HTMLVideoElement, videoInfo: VideoInfo) {
+  // Stop all other capturing videos to ensure only 1 Gemini Live session
+  for (const [otherVideo, otherVideoInfo] of videoInstances) {
+    if (otherVideo !== video && otherVideoInfo.isCapturing) {
+      console.log('Stopping other video capture to start new session');
+      await stopAudioCapture(otherVideoInfo);
+    }
+  }
+
   if (videoInfo.isCapturing) {
     console.log('Already capturing audio from this video');
     return;
@@ -172,7 +180,6 @@ async function startAudioCapture(video: HTMLVideoElement, videoInfo: VideoInfo) 
 async function setupGeminiConnection(videoInfo: VideoInfo) {
   try {
     console.log('Setting up Gemini Live API connection...');
-
 
     // Create new Gemini session with subtitle callback
     videoInfo.geminiSession = new GeminiLiveSession();
