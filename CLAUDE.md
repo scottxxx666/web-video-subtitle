@@ -137,3 +137,10 @@ Update `matches` array in `entrypoints/content.ts` for video sites:
 - Uses modern React 19 with TypeScript 5.8.3
 - Multi-browser support built into WXT framework
 - **Gemini Live API** has rate limits (10 concurrent sessions per project)
+
+## Active Technologies
+- TypeScript 5.8.3 + React 19, WXT 0.20.6, @wxt-dev/module-react, chrome.storage API (001-change-api-key)
+- Browser local storage (chrome.storage.local / browser.storage.local) (001-change-api-key)
+
+## Recent Changes
+- 001-change-api-key: Added TypeScript 5.8.3 + React 19, WXT 0.20.6, @wxt-dev/module-react, chrome.storage API
