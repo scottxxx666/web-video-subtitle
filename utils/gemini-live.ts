@@ -39,8 +39,10 @@ export class GeminiLiveSession {
   private reconnectTimeoutId: number | null = null;
   private updateSubtitleCallback: ((text: string) => void) | null = null;
   private currentMediaStream: MediaStream | null = null;
+  private apiKey: string;
 
-  constructor() {
+  constructor(apiKey: string) {
+    this.apiKey = apiKey;
     console.log('GeminiLiveSession created');
   }
 
@@ -61,10 +63,10 @@ export class GeminiLiveSession {
     this.connectionState = ConnectionState.CONNECTING;
     this.updateSubtitleCallback = updateSubtitle;
 
-      this.config = {
-        apiKey: 'apiKey', // Replace with actual API key
-        model: 'gemini-live-2.5-flash-preview', // Default model
-      }
+    this.config = {
+      apiKey: this.apiKey, // Use API key from constructor
+      model: 'gemini-live-2.5-flash-preview', // Default model
+    }
 
     const ai = new GoogleGenAI({
       apiKey: this.config.apiKey,

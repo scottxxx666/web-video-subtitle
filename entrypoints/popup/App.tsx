@@ -6,6 +6,7 @@ function App() {
   const [apiKey, setApiKey] = useState('');
   const [savedKey, setSavedKey] = useState('');
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
 
   // T006: Load API key from chrome.storage.local on component mount
@@ -31,15 +32,18 @@ function App() {
 
     if (!trimmedKey) {
       setError('API key cannot be empty');
+      setSuccess('');
       return;
     }
 
     setLoading(true);
     setError('');
+    setSuccess('');
 
     try {
       await chrome.storage.local.set({ apiKey: trimmedKey });
       setSavedKey(trimmedKey);
+      setSuccess('API key saved successfully!');
     } catch (err) {
       setError('Failed to save API key');
       console.error('Save error:', err);
@@ -52,11 +56,13 @@ function App() {
   const handleClear = async () => {
     setLoading(true);
     setError('');
+    setSuccess('');
 
     try {
       await chrome.storage.local.remove('apiKey');
       setApiKey('');
       setSavedKey('');
+      setSuccess('API key cleared successfully!');
     } catch (err) {
       setError('Failed to clear API key');
       console.error('Clear error:', err);
@@ -77,11 +83,19 @@ function App() {
           <label htmlFor="apiKey">Gemini API Key:</label>
           <input
             id="apiKey"
-            type="password"
-            value={apiKey}
+            type="text"
+            value={savedKey && apiKey === savedKey
+              ? savedKey.substring(0, 4) + '*'.repeat(Math.max(0, savedKey.length - 4))
+              : apiKey}
             onChange={(e) => setApiKey(e.target.value)}
             placeholder="Enter your API key"
             disabled={loading}
+            onFocus={() => {
+              // Show full key when focused if it was masked
+              if (savedKey && apiKey === savedKey) {
+                setApiKey(savedKey);
+              }
+            }}
           />
         </div>
 
@@ -102,6 +116,9 @@ function App() {
             {loading ? 'Clearing...' : 'Clear'}
           </button>
         </div>
+
+        {/* Success message display */}
+        {success && <div className="success-message">{success}</div>}
 
         {/* T010: Error message display */}
         {error && <div className="error-message">{error}</div>}

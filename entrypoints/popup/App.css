@@ -78,6 +78,24 @@
   background-color: #5a6268;
 }
 
+.saved-key-info {
+  margin-top: 8px;
+  padding: 6px 8px;
+  background-color: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  font-size: 13px;
+  font-family: monospace;
+  color: #495057;
+}
+
+.success-message {
+  margin-top: 8px;
+  color: #28a745;
+  font-size: 14px;
+  font-weight: 500;
+}
+
 .error-message {
   margin-top: 8px;
   color: #dc3545;

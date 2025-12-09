@@ -33,6 +33,24 @@ interface VideoInfo {
 
 const videoInstances = new Map<HTMLVideoElement, VideoInfo>();
 
+// Helper function to get API key from background script
+async function getApiKeyFromStorage(): Promise<string | null> {
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: 'GET_GEMINI_CONFIG'
+    });
+
+    // Use the direct apiKey field for simpler access
+    if (response?.success && response?.apiKey) {
+      return response.apiKey;
+    }
+
+    return null;
+  } catch (error) {
+    console.error('Failed to get API key:', error);
+    return null;
+  }
+}
 
 function initVideoSubtitleSystem() {
   // Detect existing videos
@@ -181,8 +199,15 @@ async function setupGeminiConnection(videoInfo: VideoInfo) {
   try {
     console.log('Setting up Gemini Live API connection...');
 
-    // Create new Gemini session with subtitle callback
-    videoInfo.geminiSession = new GeminiLiveSession();
+    // Get API key from background script
+    const apiKey = await getApiKeyFromStorage();
+    if (!apiKey) {
+      console.error('No API key configured. Please set API key in extension popup.');
+      return false;
+    }
+
+    // Create new Gemini session with API key
+    videoInfo.geminiSession = new GeminiLiveSession(apiKey);
 
     videoInfo.subtitleElement = createSubtitleOverlay(videoInfo.element);
     await videoInfo.geminiSession.connect((text: string) => {
@@ -191,12 +216,12 @@ async function setupGeminiConnection(videoInfo: VideoInfo) {
       }
     });
 
-      console.log('Gemini Live API connection established successfully');
-  return true
+    console.log('Gemini Live API connection established successfully');
+    return true;
   } catch (error) {
     console.error('Error setting up Gemini connection:', error);
     videoInfo.geminiSession = null;
-    return false
+    return false;
   }
 }
 

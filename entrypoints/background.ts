@@ -45,33 +45,37 @@ function setupMessageHandling() {
 }
 
 async function handleGetGeminiConfig() {
-  // Get API key from storage
-  const result = await browser.storage.local.get(['geminiApiKey']);
-  
-  if (!result.geminiApiKey) {
-    return { 
-      success: false, 
-      error: 'API key not configured. Please add your Gemini API key in the extension popup.' 
+  try {
+    // Get API key from storage
+    const result = await browser.storage.local.get(['apiKey']);
+
+    return {
+      success: true,
+      apiKey: result.apiKey || null,
+      config: result.apiKey ? {
+        ...GEMINI_CONFIG,
+        apiKey: result.apiKey
+      } : null
+    };
+  } catch (error) {
+    console.error('Error getting Gemini config:', error);
+    return {
+      success: false,
+      error: 'Failed to retrieve configuration',
+      apiKey: null,
+      config: null
     };
   }
-  
-  return {
-    success: true,
-    config: {
-      ...GEMINI_CONFIG,
-      apiKey: result.geminiApiKey
-    }
-  };
 }
 
 async function handleSetApiKey(apiKey: string) {
   if (!apiKey || typeof apiKey !== 'string') {
     return { success: false, error: 'Invalid API key' };
   }
-  
+
   // Store API key securely
-  await browser.storage.local.set({ geminiApiKey: apiKey });
-  
+  await browser.storage.local.set({ apiKey });
+
   console.log('API key stored successfully');
   return { success: true };
 }
