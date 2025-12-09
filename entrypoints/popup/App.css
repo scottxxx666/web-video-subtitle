@@ -1,42 +1,85 @@
 #root {
-  max-width: 1280px;
+  max-width: 400px;
   margin: 0 auto;
-  padding: 2rem;
+  padding: 1rem;
+}
+
+/* T011: API Key Settings Styling */
+.popup-container {
+  min-width: 300px;
+}
+
+.popup-container h1 {
+  font-size: 1.5rem;
+  margin-bottom: 1rem;
   text-align: center;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #54bc4ae0);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
+.api-key-settings {
+  padding: 16px;
+  border-top: 1px solid #ccc;
 }
 
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+.api-key-settings h2 {
+  font-size: 1.1rem;
+  margin-bottom: 12px;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
-  }
+.input-group {
+  margin-bottom: 12px;
 }
 
-.card {
-  padding: 2em;
+.input-group label {
+  display: block;
+  margin-bottom: 4px;
+  font-weight: 500;
+  font-size: 0.9rem;
 }
 
-.read-the-docs {
-  color: #888;
+.input-group input {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+
+.button-group {
+  display: flex;
+  gap: 8px;
+}
+
+.button-group button {
+  flex: 1;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  background-color: #007bff;
+  color: white;
+  font-size: 14px;
+}
+
+.button-group button:hover:not(:disabled) {
+  background-color: #0056b3;
+}
+
+.button-group button:disabled {
+  background-color: #ccc;
+  cursor: not-allowed;
+}
+
+.button-group .clear-button {
+  background-color: #6c757d;
+}
+
+.button-group .clear-button:hover:not(:disabled) {
+  background-color: #5a6268;
+}
+
+.error-message {
+  margin-top: 8px;
+  color: #dc3545;
+  font-size: 14px;
 }
