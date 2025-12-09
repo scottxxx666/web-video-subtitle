@@ -29,9 +29,9 @@ description: "Task list for API Key Management feature implementation"
 
 **Purpose**: Project initialization and verification
 
-- [ ] T001 Verify branch `001-change-api-key` is checked out and clean
-- [ ] T002 Verify dependencies installed via `yarn install`
-- [ ] T003 Verify development environment runs via `yarn dev`
+- [x] T001 Verify branch `001-change-api-key` is checked out and clean
+- [x] T002 Verify dependencies installed via `yarn install`
+- [x] T003 Verify development environment runs via `yarn dev`
 
 ---
 
@@ -43,18 +43,18 @@ description: "Task list for API Key Management feature implementation"
 
 ### Implementation for User Story 1
 
-- [ ] T004 [US1] Read existing popup structure in entrypoints/popup/App.tsx to understand current layout
-- [ ] T005 [US1] Add React state management hooks (useState for apiKey, savedKey, error, loading) in entrypoints/popup/App.tsx
-- [ ] T006 [US1] Add useEffect hook to load API key from chrome.storage.local on component mount in entrypoints/popup/App.tsx
-- [ ] T007 [US1] Implement handleSave function with empty validation and chrome.storage.local.set in entrypoints/popup/App.tsx
-- [ ] T008 [US1] Add API key input field (type password) with onChange handler in entrypoints/popup/App.tsx
-- [ ] T009 [US1] Add Save button with disabled state (when empty or loading) and onClick handler in entrypoints/popup/App.tsx
-- [ ] T010 [US1] Add error message display with conditional rendering in entrypoints/popup/App.tsx
-- [ ] T011 [P] [US1] Add CSS styling for .api-key-settings, .input-group, .button-group, .error-message in entrypoints/popup/App.css (or inline styles)
-- [ ] T012 [US1] Test save flow: enter key → click save → verify chrome.storage.local contains key
-- [ ] T013 [US1] Test persistence: save key → close popup → reopen → verify key loads
-- [ ] T014 [US1] Test empty validation: verify Save button disabled when input is empty or whitespace
-- [ ] T015 [US1] Test browser compatibility: verify in Chrome (`yarn dev`) and Firefox (`yarn dev:firefox`)
+- [x] T004 [US1] Read existing popup structure in entrypoints/popup/App.tsx to understand current layout
+- [x] T005 [US1] Add React state management hooks (useState for apiKey, savedKey, error, loading) in entrypoints/popup/App.tsx
+- [x] T006 [US1] Add useEffect hook to load API key from chrome.storage.local on component mount in entrypoints/popup/App.tsx
+- [x] T007 [US1] Implement handleSave function with empty validation and chrome.storage.local.set in entrypoints/popup/App.tsx
+- [x] T008 [US1] Add API key input field (type password) with onChange handler in entrypoints/popup/App.tsx
+- [x] T009 [US1] Add Save button with disabled state (when empty or loading) and onClick handler in entrypoints/popup/App.tsx
+- [x] T010 [US1] Add error message display with conditional rendering in entrypoints/popup/App.tsx
+- [x] T011 [P] [US1] Add CSS styling for .api-key-settings, .input-group, .button-group, .error-message in entrypoints/popup/App.css (or inline styles)
+- [x] T012 [US1] Test save flow: enter key → click save → verify chrome.storage.local contains key
+- [x] T013 [US1] Test persistence: save key → close popup → reopen → verify key loads
+- [x] T014 [US1] Test empty validation: verify Save button disabled when input is empty or whitespace
+- [x] T015 [US1] Test browser compatibility: verify in Chrome (`yarn dev`) and Firefox (`yarn dev:firefox`)
 
 **Checkpoint**: At this point, User Story 1 should be fully functional - users can enter and save API keys that persist across popup sessions
 
@@ -68,11 +68,11 @@ description: "Task list for API Key Management feature implementation"
 
 ### Implementation for User Story 2
 
-- [ ] T016 [US2] Implement handleClear function with chrome.storage.local.remove in entrypoints/popup/App.tsx
-- [ ] T017 [US2] Add Clear button with disabled state (when no savedKey or loading) and onClick handler in entrypoints/popup/App.tsx
-- [ ] T018 [US2] Test clear flow: save key → click clear → verify chrome.storage.local is empty
-- [ ] T019 [US2] Test clear button states: verify disabled when no key saved, enabled when key exists
-- [ ] T020 [US2] Test persistence after clear: clear key → close popup → reopen → verify key is gone
+- [x] T016 [US2] Implement handleClear function with chrome.storage.local.remove in entrypoints/popup/App.tsx
+- [x] T017 [US2] Add Clear button with disabled state (when no savedKey or loading) and onClick handler in entrypoints/popup/App.tsx
+- [x] T018 [US2] Test clear flow: save key → click clear → verify chrome.storage.local is empty
+- [x] T019 [US2] Test clear button states: verify disabled when no key saved, enabled when key exists
+- [x] T020 [US2] Test persistence after clear: clear key → close popup → reopen → verify key is gone
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work independently - full CRUD for API key management
 
@@ -82,15 +82,13 @@ description: "Task list for API Key Management feature implementation"
 
 **Purpose**: Improvements that affect the feature as a whole
 
-- [ ] T021 Security audit: verify no console.log(apiKey) anywhere in entrypoints/popup/App.tsx
-- [ ] T022 Security audit: verify error messages never include API key value in entrypoints/popup/App.tsx
-- [ ] T023 Accessibility check: verify input has proper label, buttons have clear text
-- [ ] T024 Code review: verify follows React 19 hooks patterns (useState, useEffect)
-- [ ] T025 Code review: verify follows YAGNI principle (no unnecessary abstractions)
-- [ ] T026 Manual end-to-end test: enter real API key → start subtitle generation → verify authentication works
-- [ ] T027 Commit changes with message "feat: add API key management UI to popup
-
-"
+- [x] T021 Security audit: verify no console.log(apiKey) anywhere in entrypoints/popup/App.tsx
+- [x] T022 Security audit: verify error messages never include API key value in entrypoints/popup/App.tsx
+- [x] T023 Accessibility check: verify input has proper label, buttons have clear text
+- [x] T024 Code review: verify follows React 19 hooks patterns (useState, useEffect)
+- [x] T025 Code review: verify follows YAGNI principle (no unnecessary abstractions)
+- [x] T026 Manual end-to-end test: enter real API key → start subtitle generation → verify authentication works
+- [x] T027 Commit changes with message "feat: add API key management UI to popup"
 
 ---
 
