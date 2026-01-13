@@ -1,4 +1,3 @@
-import { GeminiLiveSession } from '~/utils/gemini-live';
 import {
   captureAudioFromVideo,
   stopAudioTracks,
@@ -20,36 +19,37 @@ export default defineContentScript({
 
     // Initialize video detection and audio capture
     initVideoSubtitleSystem();
+
+    // Listen for transcription results from background script
+    setupTranscriptionListener();
   },
 });
 
 interface VideoInfo {
   element: HTMLVideoElement;
   audioStream: MediaStream | null;
-  geminiSession: GeminiLiveSession | null;
+  audioContext: AudioContext | null;
+  audioProcessingTimer: number | null;
   isCapturing: boolean;
   subtitleElement: HTMLElement | null;
 }
 
 const videoInstances = new Map<HTMLVideoElement, VideoInfo>();
 
-// Helper function to get API key from background script
-async function getApiKeyFromStorage(): Promise<string | null> {
-  try {
-    const response = await chrome.runtime.sendMessage({
-      type: 'GET_GEMINI_CONFIG'
-    });
+// Listen for transcription results from background script
+function setupTranscriptionListener() {
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.type === 'TRANSCRIPTION_RESULT') {
+      console.log('[Content] Received transcription:', message.text);
 
-    // Use the direct apiKey field for simpler access
-    if (response?.success && response?.apiKey) {
-      return response.apiKey;
+      // Update subtitles for all active videos
+      videoInstances.forEach((videoInfo) => {
+        if (videoInfo.subtitleElement && videoInfo.isCapturing) {
+          updateSubtitles(message.text, videoInfo.subtitleElement);
+        }
+      });
     }
-
-    return null;
-  } catch (error) {
-    console.error('Failed to get API key:', error);
-    return null;
-  }
+  });
 }
 
 function initVideoSubtitleSystem() {
@@ -116,7 +116,8 @@ function registerVideoElement(video: HTMLVideoElement) {
   const videoInfo: VideoInfo = {
     element: video,
     audioStream: null,
-    geminiSession: null,
+    audioContext: null,
+    audioProcessingTimer: null,
     isCapturing: false,
     subtitleElement: null
   };
@@ -179,15 +180,19 @@ async function startAudioCapture(video: HTMLVideoElement, videoInfo: VideoInfo) 
     videoInfo.audioStream = audioResult.audioStream;
     videoInfo.isCapturing = true;
 
-    // Setup Gemini Live API connection
-    await setupGeminiConnection(videoInfo);
-
-    // Start audio processing directly with Gemini
-    if (videoInfo.audioStream && videoInfo.geminiSession) {
-      await videoInfo.geminiSession.startAudioProcessing(videoInfo.audioStream);
+    // Setup Gemini Live API connection via background
+    const sessionStarted = await setupGeminiConnection(videoInfo);
+    if (!sessionStarted) {
+      console.error('[Content] Failed to start Gemini session');
+      return;
     }
 
-    console.log('Audio capture and Gemini connection setup successful!');
+    // Start local audio processing and streaming to background
+    if (videoInfo.audioStream) {
+      await startAudioProcessing(videoInfo);
+    }
+
+    console.log('[Content] Audio capture and streaming setup successful!');
 
   } catch (error) {
     console.error('Error capturing audio from video:', error);
@@ -197,49 +202,132 @@ async function startAudioCapture(video: HTMLVideoElement, videoInfo: VideoInfo) 
 
 async function setupGeminiConnection(videoInfo: VideoInfo) {
   try {
-    console.log('Setting up Gemini Live API connection...');
+    console.log('[Content] Starting Gemini session via background script...');
 
-    // Get API key from background script
-    const apiKey = await getApiKeyFromStorage();
-    if (!apiKey) {
-      console.error('No API key configured. Please set API key in extension popup.');
+    // Send message to background to start Gemini session
+    const response = await chrome.runtime.sendMessage({
+      type: 'START_GEMINI_SESSION'
+    });
+
+    if (!response?.success) {
+      console.error('[Content] Failed to start Gemini session:', response?.error);
       return false;
     }
 
-    // Create new Gemini session with API key
-    videoInfo.geminiSession = new GeminiLiveSession(apiKey);
-
+    // Create subtitle overlay
     videoInfo.subtitleElement = createSubtitleOverlay(videoInfo.element);
-    await videoInfo.geminiSession.connect((text: string) => {
-      if (videoInfo.subtitleElement) {
-        updateSubtitles(text, videoInfo.subtitleElement);
-      }
-    });
 
-    console.log('Gemini Live API connection established successfully');
+    console.log('[Content] Gemini session started successfully');
     return true;
   } catch (error) {
-    console.error('Error setting up Gemini connection:', error);
-    videoInfo.geminiSession = null;
+    console.error('[Content] Error setting up Gemini connection:', error);
     return false;
   }
 }
 
+async function startAudioProcessing(videoInfo: VideoInfo): Promise<void> {
+  if (!videoInfo.audioStream) {
+    console.error('[Content] No audio stream available');
+    return;
+  }
 
+  try {
+    const targetSampleRate = 16000;
+    const chunkDurationMs = 250;
 
+    // Create AudioContext for processing
+    videoInfo.audioContext = new AudioContext({ sampleRate: targetSampleRate });
+    const mediaStreamSource = videoInfo.audioContext.createMediaStreamSource(videoInfo.audioStream);
+
+    // Create AnalyserNode for audio data capture
+    const analyserNode = videoInfo.audioContext.createAnalyser();
+    const samplesNeeded = targetSampleRate * chunkDurationMs / 1000;
+    analyserNode.fftSize = Math.pow(2, Math.ceil(Math.log2(samplesNeeded)));
+    analyserNode.smoothingTimeConstant = 0;
+
+    // Connect audio graph
+    mediaStreamSource.connect(analyserNode);
+
+    const bufferLength = analyserNode.fftSize;
+    const audioBuffer = new Float32Array(bufferLength);
+
+    // Start periodic audio capture
+    videoInfo.audioProcessingTimer = window.setInterval(() => {
+      analyserNode.getFloatTimeDomainData(audioBuffer);
+
+      // Convert to Int16 PCM
+      const pcmData = convertFloat32ToInt16PCM(audioBuffer);
+
+      // Convert to base64
+      const base64Data = arrayBufferToBase64(pcmData.buffer);
+
+      // Send to background script
+      chrome.runtime.sendMessage({
+        type: 'SEND_AUDIO_CHUNK',
+        audioData: {
+          data: base64Data,
+          mimeType: 'audio/pcm;rate=16000'
+        }
+      }).catch(err => {
+        console.error('[Content] Error sending audio chunk:', err);
+      });
+    }, chunkDurationMs);
+
+    console.log('[Content] Audio processing started');
+  } catch (error) {
+    console.error('[Content] Error starting audio processing:', error);
+  }
+}
+
+function convertFloat32ToInt16PCM(float32Data: Float32Array): Int16Array {
+  const int16Data = new Int16Array(float32Data.length);
+  for (let i = 0; i < float32Data.length; i++) {
+    const sample = Math.max(-1, Math.min(1, float32Data[i]));
+    int16Data[i] = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+  }
+  return int16Data;
+}
+
+function arrayBufferToBase64(buffer: ArrayBufferLike): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+function stopAudioProcessing(videoInfo: VideoInfo): void {
+  if (videoInfo.audioProcessingTimer) {
+    clearInterval(videoInfo.audioProcessingTimer);
+    videoInfo.audioProcessingTimer = null;
+  }
+
+  if (videoInfo.audioContext) {
+    videoInfo.audioContext.close();
+    videoInfo.audioContext = null;
+  }
+
+  console.log('[Content] Audio processing stopped');
+}
 
 async function stopAudioCapture(videoInfo: VideoInfo) {
   if (!videoInfo.isCapturing) {
     return;
   }
 
-  console.log('Stopping audio capture');
+  console.log('[Content] Stopping audio capture');
 
-  // Stop audio processing and disconnect Gemini session
-  if (videoInfo.geminiSession) {
-    videoInfo.geminiSession.stopAudioProcessing();
-    await videoInfo.geminiSession.disconnect();
-    videoInfo.geminiSession = null;
+  // Stop local audio processing
+  stopAudioProcessing(videoInfo);
+
+  // Stop Gemini session in background
+  try {
+    await chrome.runtime.sendMessage({
+      type: 'STOP_GEMINI_SESSION'
+    });
+  } catch (error) {
+    console.error('[Content] Error stopping Gemini session:', error);
   }
 
   // Remove subtitle overlay using utility
@@ -252,5 +340,5 @@ async function stopAudioCapture(videoInfo: VideoInfo) {
 
   videoInfo.isCapturing = false;
 
-  console.log('Audio capture stopped');
+  console.log('[Content] Audio capture stopped');
 }

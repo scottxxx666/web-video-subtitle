@@ -237,7 +237,7 @@ export class GeminiLiveSession {
 
     console.log(`Attempting reconnection ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delay}ms...`);
 
-    this.reconnectTimeoutId = window.setTimeout(async () => {
+    this.reconnectTimeoutId = setTimeout(async () => {
       try {
         if (!this.updateSubtitleCallback) {
           console.error('Cannot reconnect: subtitle callback not available');
@@ -303,6 +303,22 @@ export class GeminiLiveSession {
     }
   }
 
+  // Public method to send pre-processed audio data from content script
+  sendAudioData(audioData: { data: string, mimeType: string }): void {
+    if (!this.session) {
+      console.error('Cannot send audio: session not connected');
+      return;
+    }
+
+    try {
+      this.session.sendRealtimeInput({
+        audio: audioData
+      });
+    } catch (error) {
+      console.error('Error sending audio data to Gemini:', error);
+    }
+  }
+
   stopAudioProcessing(): void {
     if (this.captureTimer) {
       clearInterval(this.captureTimer);
@@ -333,7 +349,7 @@ export class GeminiLiveSession {
     const bufferLength = this.analyserNode.fftSize;
     const audioBuffer = new Float32Array(bufferLength);
 
-    this.captureTimer = window.setInterval(() => {
+    this.captureTimer = setInterval(() => {
       if (this.analyserNode) {
         // Get time domain data (raw audio samples) - send immediately
         this.analyserNode.getFloatTimeDomainData(audioBuffer);
