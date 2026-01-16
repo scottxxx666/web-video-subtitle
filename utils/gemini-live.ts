@@ -65,7 +65,7 @@ export class GeminiLiveSession {
 
     this.config = {
       apiKey: this.apiKey, // Use API key from constructor
-      model: 'gemini-live-2.5-flash-preview', // Default model
+      model: 'gemini-2.5-flash-native-audio-preview-12-2025', // Default model
     }
 
     const ai = new GoogleGenAI({
@@ -82,6 +82,8 @@ export class GeminiLiveSession {
         },
         onmessage: (message) => {
           // console.log('Received message:', message);
+          console.log('123', message.serverContent?.inputTranscription)
+          return
 
           // Handle transcription responses
           if (message.serverContent) {
@@ -115,7 +117,10 @@ export class GeminiLiveSession {
         },
       },
       config: {
-        responseModalities: [Modality.TEXT],
+        // responseModalities: [Modality.TEXT],
+        responseModalities: [Modality.AUDIO],
+        inputAudioTranscription: {},
+        outputAudioTranscription: {},
         realtimeInputConfig: {
           automaticActivityDetection: {
             disabled: false, // default
