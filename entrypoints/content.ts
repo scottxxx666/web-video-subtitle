@@ -9,19 +9,30 @@ import {
   removeSubtitleOverlay
 } from '~/utils/subtitle-overlay';
 
+// Track whether translation is enabled
+let isEnabled = false;
+
 export default defineContentScript({
   matches: [
     '*://weverse.io/*',
   ],
 
-  main() {
+  async main() {
     console.log('Video subtitle extension loaded');
+
+    // Load initial enabled state from storage
+    const { enabled } = await chrome.storage.local.get('enabled');
+    isEnabled = enabled ?? false;
+    console.log('[Content] Translation enabled:', isEnabled);
 
     // Initialize video detection and audio capture
     initVideoSubtitleSystem();
 
     // Listen for transcription results from background script
     setupTranscriptionListener();
+
+    // Listen for toggle messages from popup
+    setupToggleListener();
   },
 });
 
@@ -48,6 +59,25 @@ function setupTranscriptionListener() {
           updateSubtitles(message.text, videoInfo.subtitleElement);
         }
       });
+    }
+  });
+}
+
+// Listen for toggle messages from popup
+function setupToggleListener() {
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.type === 'TOGGLE_TRANSLATION') {
+      isEnabled = message.enabled;
+      console.log('[Content] Translation toggled:', isEnabled);
+
+      if (!isEnabled) {
+        // Stop all active captures when disabled
+        videoInstances.forEach((videoInfo) => {
+          if (videoInfo.isCapturing) {
+            stopAudioCapture(videoInfo);
+          }
+        });
+      }
     }
   });
 }
@@ -155,6 +185,12 @@ function setupVideoEventListeners(video: HTMLVideoElement, videoInfo: VideoInfo)
 }
 
 async function startAudioCapture(video: HTMLVideoElement, videoInfo: VideoInfo) {
+  // Check if translation is enabled
+  if (!isEnabled) {
+    console.log('[Content] Translation disabled, not starting capture');
+    return;
+  }
+
   // Stop all other capturing videos to ensure only 1 Gemini Live session
   for (const [otherVideo, otherVideoInfo] of videoInstances) {
     if (otherVideo !== video && otherVideoInfo.isCapturing) {

@@ -8,22 +8,24 @@ function App() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
+  const [enabled, setEnabled] = useState(false);
 
-  // T006: Load API key from chrome.storage.local on component mount
+  // T006: Load API key and enabled state from chrome.storage.local on component mount
   useEffect(() => {
-    const loadApiKey = async () => {
+    const loadSettings = async () => {
       try {
-        const { apiKey: stored } = await chrome.storage.local.get('apiKey');
+        const { apiKey: stored, enabled: storedEnabled } = await chrome.storage.local.get(['apiKey', 'enabled']);
         if (stored) {
           setApiKey(stored);
           setSavedKey(stored);
         }
+        setEnabled(storedEnabled ?? false);
       } catch (err) {
-        setError('Failed to load API key settings');
+        setError('Failed to load settings');
         console.error('Storage error:', err);
       }
     };
-    loadApiKey();
+    loadSettings();
   }, []);
 
   // T007: Implement handleSave function
@@ -71,9 +73,44 @@ function App() {
     }
   };
 
+  // Handle translation toggle
+  const handleToggle = async () => {
+    const newValue = !enabled;
+    setEnabled(newValue);
+    await chrome.storage.local.set({ enabled: newValue });
+
+    // Notify active tab's content script
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab?.id) {
+        chrome.tabs.sendMessage(tab.id, { type: 'TOGGLE_TRANSLATION', enabled: newValue });
+      }
+    } catch (err) {
+      console.error('Failed to notify content script:', err);
+    }
+  };
+
   return (
     <div className="popup-container">
       <h1>Video Subtitle Generator</h1>
+
+      {/* Translation Toggle */}
+      <div className="toggle-section">
+        <label className="toggle-label">
+          <span>Translation</span>
+          <div className="toggle-switch">
+            <input
+              type="checkbox"
+              checked={enabled}
+              onChange={handleToggle}
+            />
+            <span className="toggle-slider"></span>
+          </div>
+        </label>
+        <p className="toggle-description">
+          {enabled ? 'Translation is active' : 'Translation is disabled'}
+        </p>
+      </div>
 
       {/* T008-T010: API Key Settings UI */}
       <div className="api-key-settings">
