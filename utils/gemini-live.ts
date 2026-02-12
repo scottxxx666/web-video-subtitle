@@ -2,13 +2,13 @@ import { ActivityHandling, EndSensitivity, GoogleGenAI, Modality, StartSensitivi
 import { WaveFile } from 'wavefile';
 
 // Gemini Live API configuration
-export interface GeminiConfig {
+interface GeminiConfig {
   apiKey: string;
   model: string;
 }
 
 // Connection states for tracking Gemini session status
-export enum ConnectionState {
+enum ConnectionState {
   DISCONNECTED = 'disconnected',
   CONNECTING = 'connecting',
   CONNECTED = 'connected',
