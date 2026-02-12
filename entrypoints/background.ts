@@ -1,4 +1,4 @@
-import { GeminiAudioUnderstandingSession } from '~/utils/gemini-audio-understanding';
+import { GeminiLiveSession } from '~/utils/gemini-live';
 
 export default defineBackground(() => {
   console.log('Video subtitle background script loaded', { id: browser.runtime.id });
@@ -14,7 +14,7 @@ interface GeminiConfig {
 }
 
 interface SessionInfo {
-  session: GeminiAudioUnderstandingSession;
+  session: GeminiLiveSession;
   tabId: number;
 }
 
@@ -133,8 +133,8 @@ async function handleStartSession(tabId: number | undefined) {
 
     console.log(`[Background] Starting Gemini session for tab ${tabId}`);
 
-    // Create new Gemini Audio Understanding session
-    const session = new GeminiAudioUnderstandingSession(result.apiKey);
+    // Create new Gemini Live session
+    const session = new GeminiLiveSession(result.apiKey);
 
     // Connect to Gemini with callback to forward transcriptions to content script
     await session.connect((transcriptionText: string) => {

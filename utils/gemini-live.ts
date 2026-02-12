@@ -117,17 +117,14 @@ export class GeminiLiveSession {
         },
       },
       config: {
-        // responseModalities: [Modality.TEXT],
-        responseModalities: [Modality.AUDIO],
-        inputAudioTranscription: {},
-        outputAudioTranscription: {},
+        responseModalities: [Modality.TEXT],
         realtimeInputConfig: {
           automaticActivityDetection: {
             disabled: false, // default
             startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_HIGH,
             endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_HIGH,
-            prefixPaddingMs: 20, // optional
-            silenceDurationMs: 20, // optional
+            prefixPaddingMs: 100, // optional
+            silenceDurationMs: 500, // optional
           },
           activityHandling: ActivityHandling.NO_INTERRUPTION,
         },
